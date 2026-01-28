@@ -118,68 +118,77 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, limit, doc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
-        // Globalne ustawienia
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'everest-jonkowo-v2';
         const apiKey = ""; 
         let db, auth, user = null;
 
-        // --- KONFIGURACJA CHMURY (FIRESTORE) ---
         async function startCloud() {
             const statusDot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
             
             try {
+                if (typeof __firebase_config === 'undefined') throw new Error("Brak konfiguracji Firebase");
                 const firebaseConfig = JSON.parse(__firebase_config);
                 const app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // Logowanie (Zasada nr 3)
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
+                // Rejestracja słuchacza stanu autoryzacji przed samym logowaniem
                 onAuthStateChanged(auth, (u) => {
                     user = u;
                     if (user) {
                         statusDot.className = "w-2 h-2 bg-green-500";
                         statusText.innerText = "Online";
                         connectToLeaderboard();
+                    } else {
+                        statusDot.className = "w-2 h-2 bg-amber-500";
+                        statusText.innerText = "Logowanie...";
                     }
                 });
+
+                // Wybór metody logowania (Zasada nr 3)
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
             } catch (e) {
                 console.error("Cloud Init Error:", e);
-                statusDot.className = "w-2 h-2 bg-red-500";
-                statusText.innerText = "Offline";
+                statusDot.className = "w-2 h-2 bg-red-500 animate-none";
+                statusText.innerText = "Błąd bazy";
+                document.getElementById('rankingPlaceholder').innerText = "Błąd połączenia z serwerem Everest";
             }
         }
 
         function connectToLeaderboard() {
+            if (!db || !user) return;
+            
             // Ścieżka zgodna z Zasadą nr 1
             const collectionPath = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
             
-            // Pobieranie danych (Zasada nr 2: proste zapytanie)
+            // Pobieranie danych (Zasada nr 2)
             onSnapshot(collectionPath, (snap) => {
                 const scores = [];
-                snap.forEach(doc => scores.push(doc.data()));
-                // Sortowanie w pamięci JS
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.name && data.score !== undefined) scores.push(data);
+                });
                 scores.sort((a, b) => b.score - a.score);
                 renderRanking(scores.slice(0, 10));
             }, (err) => {
                 console.error("Leaderboard Error:", err);
-                document.getElementById('rankingPlaceholder').innerText = "Błąd uprawnień Everest Cloud";
+                document.getElementById('rankingPlaceholder').innerText = "Brak dostępu do rankingu";
             });
         }
 
         function renderRanking(data) {
             const list = document.getElementById('leaderboardList');
             if (!data.length) {
-                list.innerHTML = '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Zostań pierwszym agentem w rankingu!</p>';
+                list.innerHTML = '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Brak wyników w bazie</p>';
                 return;
             }
             list.innerHTML = '';
@@ -202,12 +211,11 @@
         const p1 = { x: 150, y: 250, score: 0, color: '#2563eb' };
         const p2 = { x: 650, y: 250, score: 0, color: '#ef4444' };
 
-        // AI Everest
         async function getAIAnalysis(s1, s2) {
             const container = document.getElementById('aiCommentContainer');
             const textEl = document.getElementById('aiCommentText');
             container.classList.remove('hidden');
-            const prompt = `Mecz sprzedaży Everest Jonkowo: Agent1: ${s1}, Agent2: ${s2}. Krótki, motywujący komentarz szefa biura (max 15 słów).`;
+            const prompt = `Analiza meczu Everest Jonkowo: Agent1: ${s1}, Agent2: ${s2}. Śmieszny i krótki komentarz ekspercki o ubezpieczeniach (max 15 słów).`;
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                     method: 'POST',
@@ -215,8 +223,8 @@
                     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                 });
                 const data = await res.json();
-                textEl.innerText = "💼 " + (data.candidates?.[0]?.content?.parts?.[0]?.text || "Świetna robota, Jonkowo!");
-            } catch (e) { textEl.innerText = "💼 Polisy wystawione, czas na kawę!"; }
+                textEl.innerText = "📢 " + (data.candidates?.[0]?.content?.parts?.[0]?.text || "Genialna forma agentów!");
+            } catch (e) { textEl.innerText = "📢 Polisy wystawione, czas na przerwę!"; }
         }
 
         function spawn() { items.push({ x: 50+Math.random()*700, y: 50+Math.random()*400 }); }
@@ -292,10 +300,9 @@
             const nameInput = document.getElementById('winnerName');
             const name = nameInput.value.trim();
             if(!name) { nameInput.classList.add('border-red-500'); return; }
-            if(!user) { alert("Łączenie z chmurą... Spróbuj za chwilę."); return; }
+            if(!user || !db) { alert("Poczekaj na połączenie z bazą..."); return; }
             
             try {
-                // Zapisujemy najlepszy wynik z tej rundy
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
                     name: name.toUpperCase(), 
                     score: Math.max(p1.score, p2.score), 
@@ -304,13 +311,12 @@
                 location.reload();
             } catch(e) { 
                 console.error("Save Error:", e);
-                alert("Błąd zapisu danych. Sprawdź połączenie."); 
+                alert("Wystąpił problem z wysyłką do Jonkowa. Spróbuj jeszcze raz."); 
             }
         };
         
         document.getElementById('restartBtn').onclick = () => location.reload();
 
-        // Inicjalizacja
         draw();
         startCloud();
     </script>
