@@ -2,16 +2,17 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Everest - Wyścig Agentów (Jonkowo)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { overflow: hidden; touch-action: none; background-color: #f8fafc; margin: 0; }
-        canvas { display: block; box-shadow: 0 10px 25px rgba(0,0,0,0.2); border-radius: 12px; cursor: crosshair; touch-action: none; }
+        canvas { display: block; box-shadow: 0 10px 25px rgba(0,0,0,0.2); border-radius: 12px; cursor: crosshair; touch-action: none; background: white; }
         .leaderboard-item { transition: all 0.2s ease-in-out; }
         .leaderboard-item:hover { transform: scale(1.02); background-color: #f1f5f9; }
         @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         .animate-pulse-soft { animation: pulse-soft 2s infinite; }
+        .touch-btn { -webkit-user-select: none; user-select: none; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center font-sans text-slate-800 p-2 md:p-4">
@@ -40,7 +41,7 @@
             </div>
 
             <div class="relative w-full max-w-[800px] aspect-[8/5]">
-                <canvas id="gameCanvas" width="800" height="500" class="w-full h-full bg-white border-4 border-white shadow-2xl"></canvas>
+                <canvas id="gameCanvas" width="800" height="500" class="w-full h-full border-4 border-white shadow-2xl"></canvas>
                 
                 <!-- Overlay Start/Koniec -->
                 <div id="gameOverlay" class="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center text-white rounded-xl p-6 text-center z-20 backdrop-blur-sm">
@@ -50,19 +51,19 @@
                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                            </svg>
                         </div>
-                        <h2 class="text-4xl font-black mb-6 italic tracking-tighter">ZACZYNAMY?</h2>
+                        <h2 class="text-4xl font-black mb-6 italic tracking-tighter uppercase">Wystawiamy polisy?</h2>
                         <div class="grid grid-cols-2 gap-4 mb-8 text-left max-w-sm mx-auto">
                             <div class="p-3 bg-slate-800/50 rounded-xl border-l-4 border-blue-500">
                                 <p class="text-blue-400 font-black text-[10px] uppercase mb-1">Agent 1</p>
-                                <p class="text-sm font-bold">Strzałki</p>
+                                <p class="text-xs font-bold">Strzałki / Dotyk</p>
                             </div>
                             <div class="p-3 bg-slate-800/50 rounded-xl border-l-4 border-red-500">
                                 <p class="text-red-400 font-black text-[10px] uppercase mb-1">Agent 2</p>
-                                <p class="text-sm font-bold">W, A, S, D</p>
+                                <p class="text-xs font-bold">WASD</p>
                             </div>
                         </div>
                         <button id="startBtn" class="px-12 py-4 bg-white text-slate-900 hover:bg-blue-600 hover:text-white rounded-xl font-black text-xl transition-all transform hover:scale-105 shadow-xl uppercase">
-                            Wystaw polisy
+                            Zacznij Grę
                         </button>
                     </div>
 
@@ -71,7 +72,7 @@
                         <p id="winnerText" class="text-xl text-yellow-400 mb-4 font-bold uppercase"></p>
                         
                         <div id="aiCommentContainer" class="hidden mb-4 p-3 bg-blue-900/40 rounded-xl border border-blue-500/30 text-xs italic text-blue-100">
-                            <p id="aiCommentText">Analiza sprzedaży...</p>
+                            <p id="aiCommentText">Analiza sprzedaży Everest...</p>
                         </div>
 
                         <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-2xl">
@@ -88,6 +89,14 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Kontrolki mobilne dla Agenta 1 -->
+            <div class="lg:hidden grid grid-cols-3 gap-2 mt-4 touch-btn">
+                <div></div><button id="mUp" class="p-4 bg-slate-200 rounded-xl text-2xl active:bg-blue-500 active:text-white">▲</button><div></div>
+                <button id="mLeft" class="p-4 bg-slate-200 rounded-xl text-2xl active:bg-blue-500 active:text-white">◀</button>
+                <button id="mDown" class="p-4 bg-slate-200 rounded-xl text-2xl active:bg-blue-500 active:text-white">▼</button>
+                <button id="mRight" class="p-4 bg-slate-200 rounded-xl text-2xl active:bg-blue-500 active:text-white">▶</button>
+            </div>
         </div>
 
         <!-- PRAWA STRONA: RANKING -->
@@ -102,7 +111,7 @@
                 </div>
             </div>
             <div id="leaderboardList" class="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50 min-h-[300px]">
-                <div id="rankingPlaceholder" class="text-center py-10 opacity-30 text-[10px] font-bold uppercase">Inicjalizacja systemu...</div>
+                <div id="rankingPlaceholder" class="text-center py-10 opacity-30 text-[10px] font-bold uppercase">Ładowanie wyników...</div>
             </div>
         </div>
     </div>
@@ -112,7 +121,7 @@
         import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
-        // Konfiguracja Firebase (dostarczana przez środowisko)
+        // Konfiguracja Firebase
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
@@ -128,7 +137,7 @@
             const textEl = document.getElementById('aiCommentText');
             container.classList.remove('hidden');
             
-            const prompt = `Wynik meczu agentów ubezpieczeniowych w Jonkowie: Agent1: ${s1}, Agent2: ${s2}. Skomentuj to krótko (max 20 słów) jako szef biura Everest. Nawiąż do ubezpieczeń.`;
+            const prompt = `Wynik meczu agentów ubezpieczeniowych biura Everest w Jonkowie: Agent1 zdobył ${s1}, Agent2 zdobył ${s2}. Skomentuj to krótko (max 20 słów) jako szef biura. Nawiąż do ubezpieczeń majątkowych lub komunikacyjnych.`;
             
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
@@ -137,9 +146,9 @@
                     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                 });
                 const data = await res.json();
-                textEl.innerText = "✨ " + (data.candidates?.[0]?.content?.parts?.[0]?.text || "Świetna robota, zespół Everest!");
+                textEl.innerText = "✨ " + (data.candidates?.[0]?.content?.parts?.[0]?.text || "Świetna sprzedaż w Jonkowie!");
             } catch (e) {
-                textEl.innerText = "✨ Polisy wystawione, czas na kawę w Jonkowie!";
+                textEl.innerText = "✨ Czas na kawę, klienci czekają na polisy!";
             }
         }
 
@@ -150,44 +159,35 @@
             const list = document.getElementById('leaderboardList');
 
             try {
-                // Próba anonimowego logowania
                 await signInAnonymously(auth);
                 user = auth.currentUser;
-                
                 statusDot.className = "w-2 h-2 bg-green-500";
                 statusText.innerText = "Online";
                 loadData();
             } catch (e) {
-                console.error("Firebase connection failed", e);
-                statusDot.className = "w-2 h-2 bg-red-500 animate-none";
-                statusText.innerText = "Tryb Lokalny";
-                list.innerHTML = `
-                    <div class="p-4 text-center">
-                        <p class="text-[10px] text-slate-500 font-bold uppercase mb-2">Brak połączenia z bazą</p>
-                        <p class="text-[8px] text-slate-400 leading-relaxed uppercase">Ranking wymaga autoryzacji domeny w Firebase Console.</p>
-                    </div>`;
+                console.warn("Cloud disconnected");
+                statusDot.className = "w-2 h-2 bg-red-500";
+                statusText.innerText = "Offline";
+                list.innerHTML = `<p class="text-[9px] text-slate-400 text-center p-4">Uruchomiono w trybie lokalnym. Aby ranking działał, dodaj domenę w Firebase Console.</p>`;
             }
         }
 
         function loadData() {
             if (!user) return;
             const ref = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
-            
             onSnapshot(ref, (snap) => {
                 const entries = [];
                 snap.forEach(doc => entries.push(doc.data()));
                 entries.sort((a,b) => b.score - a.score);
                 renderRanking(entries.slice(0, 10));
             }, (err) => {
-                console.warn("Snapshot error - likely permissions", err);
-                document.getElementById('statusDot').className = "w-2 h-2 bg-amber-500 animate-none";
-                document.getElementById('statusText').innerText = "Błąd Uprawnień";
+                console.error("Firestore error", err);
             });
         }
 
         function renderRanking(data) {
             const list = document.getElementById('leaderboardList');
-            list.innerHTML = data.length ? '' : '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Czekamy na pierwszą polisę...</p>';
+            list.innerHTML = data.length ? '' : '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Brak wyników</p>';
             data.forEach((s, i) => {
                 list.innerHTML += `
                     <div class="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm leaderboard-item">
@@ -207,12 +207,22 @@
         const p1 = { x: 150, y: 250, score: 0, color: '#2563eb' };
         const p2 = { x: 650, y: 250, score: 0, color: '#ef4444' };
 
-        // Blokada przewijania strony przy strzałkach
+        // Obsługa klawiszy
         window.addEventListener('keydown', e => { 
             keys[e.key] = true; 
             if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault(); 
         });
         window.addEventListener('keyup', e => keys[e.key] = false);
+
+        // Obsługa dotyku (wirtualne strzałki dla Agenta 1)
+        const bindTouch = (id, key) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener('pointerup', (e) => { e.preventDefault(); keys[key] = false; });
+            btn.addEventListener('pointerleave', (e) => { e.preventDefault(); keys[key] = false; });
+        };
+        bindTouch('mUp', 'ArrowUp'); bindTouch('mDown', 'ArrowDown'); 
+        bindTouch('mLeft', 'ArrowLeft'); bindTouch('mRight', 'ArrowRight');
 
         function spawn() { 
             items.push({ x: 50+Math.random()*700, y: 50+Math.random()*400 }); 
@@ -221,60 +231,41 @@
         function update() {
             if(!active) return;
             const s = 7;
-            // Agent 1 - Strzałki
             if(keys.ArrowUp && p1.y > 20) p1.y -= s; 
             if(keys.ArrowDown && p1.y < 480) p1.y += s;
             if(keys.ArrowLeft && p1.x > 20) p1.x -= s; 
             if(keys.ArrowRight && p1.x < 780) p1.x += s;
             
-            // Agent 2 - WASD
             if((keys.w || keys.W) && p2.y > 20) p2.y -= s; 
             if((keys.s || keys.S) && p2.y < 480) p2.y += s;
             if((keys.a || keys.A) && p2.x > 20) p2.x -= s; 
             if((keys.d || keys.D) && p2.x < 780) p2.x += s;
 
-            items.forEach((it, i) => {
+            for(let i = items.length - 1; i >= 0; i--) {
+                const it = items[i];
                 [p1, p2].forEach(p => {
                     if(Math.hypot(p.x-it.x, p.y-it.y) < 25) { 
                         p.score++; 
-                        items.splice(i,1); 
+                        items.splice(i, 1); 
                         spawn(); 
                     }
                 });
-            });
-            
+            }
             document.getElementById('score1').innerText = p1.score;
             document.getElementById('score2').innerText = p2.score;
         }
 
         function draw() {
             ctx.clearRect(0, 0, 800, 500);
-            
-            // Rysuj punkty (polisy)
             items.forEach(it => {
-                ctx.fillStyle = '#10b981'; 
-                ctx.beginPath(); 
-                ctx.arc(it.x, it.y, 10, 0, Math.PI * 2); 
-                ctx.fill();
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2;
-                ctx.stroke();
+                ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(it.x, it.y, 10, 0, 7); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
             });
-            
-            // Rysuj Agentów
             [p1, p2].forEach(p => {
-                ctx.fillStyle = p.color; 
-                ctx.beginPath();
-                if(ctx.roundRect) {
-                    ctx.roundRect(p.x-15, p.y-15, 30, 30, 8);
-                } else {
-                    ctx.fillRect(p.x-15, p.y-15, 30, 30);
-                }
+                ctx.fillStyle = p.color; ctx.beginPath();
+                ctx.roundRect ? ctx.roundRect(p.x-15, p.y-15, 30, 30, 8) : ctx.fillRect(p.x-15, p.y-15, 30, 30);
                 ctx.fill();
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = p.color;
             });
-            ctx.shadowBlur = 0;
         }
 
         function loop() {
@@ -290,17 +281,13 @@
             for(let i=0; i<6; i++) spawn();
             active = true; 
             loop();
-            
             const timerInterval = setInterval(() => {
-                time--; 
-                document.getElementById('timer').innerText = time + "s";
+                time--; document.getElementById('timer').innerText = time + "s";
                 if(time <= 0) {
-                    clearInterval(timerInterval); 
-                    active = false;
+                    clearInterval(timerInterval); active = false;
                     document.getElementById('gameOverlay').classList.remove('hidden');
                     document.getElementById('startContent').classList.add('hidden');
                     document.getElementById('endContent').classList.remove('hidden');
-                    
                     document.getElementById('winnerText').innerText = p1.score === p2.score ? "REMIS!" : (p1.score > p2.score ? "AGENT 1 WYGRYWA!" : "AGENT 2 WYGRYWA!");
                     getAIAnalysis(p1.score, p2.score);
                 }
@@ -310,24 +297,19 @@
         document.getElementById('saveScoreBtn').onclick = async () => {
             const name = document.getElementById('winnerName').value.trim();
             if(!name) return alert("Podpisz się!");
-            if(!user) return alert("Ranking dostępny tylko w trybie Online.");
-            
-            const finalScore = Math.max(p1.score, p2.score);
+            if(!user) return alert("Zapis niedostępny w trybie offline.");
+            const score = Math.max(p1.score, p2.score);
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
-                    name: name.toUpperCase(), 
-                    score: finalScore, 
-                    timestamp: Date.now()
+                    name: name.toUpperCase(), score: score, timestamp: Date.now()
                 });
                 location.reload();
-            } catch(e) { 
-                alert("Wystąpił błąd przy zapisie do chmury."); 
-            }
+            } catch(e) { alert("Błąd zapisu."); }
         };
 
         document.getElementById('restartBtn').onclick = () => location.reload();
 
-        // Start inicjalizacji
+        // Inicjalizacja
         initCloud();
         draw();
     </script>
