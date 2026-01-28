@@ -125,7 +125,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
         // Konfiguracja Firebase
         const firebaseConfig = JSON.parse(__firebase_config);
@@ -134,6 +134,8 @@
         const auth = getAuth(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'everest-ai-v1';
         const apiKey = ""; // Klucz dostarczany przez środowisko
+
+        let currentUser = null;
 
         // --- GEMINI API INTEGRATION ---
         async function callGemini(prompt) {
@@ -176,7 +178,7 @@
 
             const prompt = "Wymyśl jeden kreatywny, krótki (max 12 znaków) pseudonim dla mistrza sprzedaży ubezpieczeń. Tylko jedno słowo lub dwa krótkie. Bez cudzysłowu.";
             const nick = await callGemini(prompt);
-            input.value = nick.replace(/[".]/g, '').toUpperCase().substring(0, 12);
+            input.value = (nick || "").replace(/[".]/g, '').toUpperCase().trim().substring(0, 12);
             
             btn.disabled = false;
             btn.innerText = "✨ Nowy";
@@ -185,25 +187,37 @@
         // --- CORE GAME & CLOUD ---
         async function connect() {
             try {
-                await signInAnonymously(auth);
-                document.getElementById('statusDot').className = "w-2 h-2 bg-green-500";
-                document.getElementById('statusText').innerText = "Everest Cloud Online";
-                loadRanking();
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
             } catch (err) {
-                document.getElementById('statusText').innerText = "Offline Mode";
-                loadRanking();
+                console.error("Auth error", err);
+                document.getElementById('statusText').innerText = "Tryb Lokalny";
             }
         }
 
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                document.getElementById('statusDot').className = "w-2 h-2 bg-green-500";
+                document.getElementById('statusText').innerText = "Everest Cloud Online";
+                loadRanking();
+            }
+        });
+
         function loadRanking() {
+            if (!currentUser) return;
             const ref = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
             onSnapshot(ref, (snap) => {
                 const data = [];
                 snap.forEach(doc => data.push(doc.data()));
                 data.sort((a,b) => b.score - a.score);
                 renderRanking(data);
-            }, () => {
-                document.getElementById('leaderboardList').innerHTML = `<p class="text-xs p-4">Błąd bazy danych.</p>`;
+            }, (err) => {
+                console.error("Snapshot error", err);
+                document.getElementById('leaderboardList').innerHTML = `<p class="text-xs p-4 text-slate-400">Ranking niedostępny lokalnie. Wrzuć plik jako index.html na GitHub Pages.</p>`;
             });
         }
 
@@ -296,6 +310,7 @@
         };
 
         document.getElementById('saveScoreBtn').onclick = async () => {
+            if (!currentUser) return alert("Błąd połączenia z chmurą. Upewnij się, że strona ma rozszerzenie .html");
             const name = document.getElementById('winnerName').value.trim();
             if(!name) return alert("Podpisz się!");
             try {
@@ -305,7 +320,7 @@
                     date: new Date().toLocaleDateString('pl-PL') 
                 });
                 location.reload();
-            } catch(e) { alert("Błąd zapisu."); }
+            } catch(e) { alert("Błąd zapisu danych do Everest Cloud."); }
         };
 
         document.getElementById('generateNicknameBtn').onclick = generateNickname;
