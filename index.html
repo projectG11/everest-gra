@@ -14,6 +14,22 @@
         .animate-pulse-soft { animation: pulse-soft 2s infinite; }
         .touch-btn { -webkit-user-select: none; user-select: none; }
     </style>
+
+    <!-- WSTAW SWÓJ KONFIG FIREBASE TUTAJ -->
+    <script>
+      // UWAGA: uzupełnij własnymi danymi z konsoli Firebase
+      window.__firebase_config = JSON.stringify({
+        apiKey: "TWOJ_API_KEY",
+        authDomain: "TWOJ_PROJEKT.firebaseapp.com",
+        projectId: "TWOJ_PROJEKT",
+        storageBucket: "TWOJ_PROJEKT.appspot.com",
+        messagingSenderId: "TWOJ_SENDER_ID",
+        appId: "TWOJ_APP_ID"
+      });
+
+      // identyfikator apki (jeśli chcesz filtrować po appId – na razie nie jest potrzebny do prostego rankingu)
+      window.__app_id = 'everest-jonkowo-cloud';
+    </script>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center font-sans text-slate-800 p-2 md:p-4">
 
@@ -112,11 +128,11 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
         // Konfiguracja Everest
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'everest-jonkowo-cloud';
+        const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'everest-jonkowo-cloud';
         let db, auth, user = null;
 
         // --- OBSŁUGA CLOUD FIRESTORE ---
@@ -125,26 +141,23 @@
             const statusText = document.getElementById('statusText');
             
             try {
-                const firebaseConfig = JSON.parse(__firebase_config);
+                const firebaseConfig = JSON.parse(window.__firebase_config);
                 const app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // Autoryzacja (MANDATORY RULE 3)
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                onAuthStateChanged(auth, (u) => {
-                    user = u;
-                    if (user) {
-                        statusDot.className = "w-2 h-2 bg-green-500";
-                        statusText.innerText = "Chmura OK";
-                        subscribeToLeaderboard();
+                // Proste: tylko anonimowe logowanie
+                onAuthStateChanged(auth, async (u) => {
+                    if (!u) {
+                        await signInAnonymously(auth);
+                        return;
                     }
+                    user = u;
+                    statusDot.className = "w-2 h-2 bg-green-500";
+                    statusText.innerText = "Chmura OK";
+                    subscribeToLeaderboard();
                 });
+
             } catch (e) {
                 console.error("Cloud Error:", e);
                 statusDot.className = "w-2 h-2 bg-red-500 animate-none";
@@ -154,19 +167,19 @@
 
         function subscribeToLeaderboard() {
             if (!user) return;
-            // MANDATORY RULE 1: Strict paths
-            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
+
+            // PROSTA KOLEKCJA "scores"
+            const colRef = collection(db, 'scores');
             
-            // Słuchacz czasu rzeczywistego
             onSnapshot(colRef, (snap) => {
                 const results = [];
                 snap.forEach(doc => results.push(doc.data()));
-                // Sortowanie po stronie klienta (zgodnie z RULE 2 - unikamy błędów indeksowania)
                 results.sort((a, b) => b.score - a.score);
                 updateRankingUI(results.slice(0, 10));
             }, (err) => {
                 console.error("Snapshot error:", err);
-                document.getElementById('leaderboardList').innerHTML = `<p class="text-[10px] text-center text-red-500 p-4">Błąd synchronizacji: ${err.message}</p>`;
+                document.getElementById('leaderboardList').innerHTML =
+                  `<p class="text-[10px] text-center text-red-500 p-4">Błąd synchronizacji: ${err.message}</p>`;
             });
         }
 
@@ -198,7 +211,6 @@
 
         function draw() {
             ctx.clearRect(0, 0, 800, 500);
-            // Siatka tła
             ctx.strokeStyle = '#f1f5f9'; ctx.lineWidth = 1;
             for(let i=0; i<800; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,500); ctx.stroke(); }
             for(let i=0; i<500; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke(); }
@@ -252,12 +264,17 @@
                     document.getElementById('gameOverlay').classList.remove('hidden');
                     document.getElementById('startContent').classList.add('hidden');
                     document.getElementById('endContent').classList.remove('hidden');
-                    document.getElementById('winnerText').innerText = p1.score === p2.score ? "REMIS!" : (p1.score > p2.score ? "AGENT 1 WYGRYWA!" : "AGENT 2 WYGRYWA!");
+                    document.getElementById('winnerText').innerText =
+                      p1.score === p2.score ? "REMIS!" :
+                      (p1.score > p2.score ? "AGENT 1 WYGRYWA!" : "AGENT 2 WYGRYWA!");
                 }
             }, 1000);
         });
 
-        window.addEventListener('keydown', e => { keys[e.key] = true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault(); });
+        window.addEventListener('keydown', e => {
+            keys[e.key] = true;
+            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+        });
         window.addEventListener('keyup', e => keys[e.key] = false);
 
         document.getElementById('saveScoreBtn').onclick = async () => {
@@ -267,14 +284,16 @@
             if(!user) { alert("Poczekaj na połączenie..."); return; }
             
             try {
-                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
+                const colRef = collection(db, 'scores');
                 await addDoc(colRef, {
+                    appId,
                     name: name.toUpperCase(),
                     score: Math.max(p1.score, p2.score),
                     timestamp: Date.now()
                 });
                 location.reload();
             } catch(e) { 
+                console.error(e);
                 alert("Błąd zapisu w chmurze.");
             }
         };
