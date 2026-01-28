@@ -118,13 +118,79 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, limit } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
         // Konfiguracja Firebase
         let db, auth, user = null;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'everest-jonkowo-v2';
         const apiKey = ""; 
+
+        // --- POŁĄCZENIE Z CHMURĄ ---
+        async function initCloud() {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const list = document.getElementById('leaderboardList');
+            
+            try {
+                // Sprawdzamy czy konfiguracja istnieje
+                if (typeof __firebase_config === 'undefined') throw new Error("No config");
+                
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Logowanie
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                user = auth.currentUser;
+                statusDot.className = "w-2 h-2 bg-green-500";
+                statusText.innerText = "Online";
+                
+                // Uruchomienie nasłuchiwania rankingu
+                const q = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                onSnapshot(q, (snap) => {
+                    const entries = [];
+                    snap.forEach(doc => entries.push(doc.data()));
+                    // Sortujemy lokalnie (Zasada nr 2: unikamy złożonych zapytań w Firestore)
+                    entries.sort((a,b) => b.score - a.score);
+                    renderRanking(entries.slice(0, 10));
+                }, (err) => {
+                    console.error("Firestore error:", err);
+                    statusText.innerText = "Błąd bazy";
+                });
+
+            } catch (e) {
+                console.warn("Cloud connection error:", e.message);
+                statusDot.className = "w-2 h-2 bg-red-500";
+                statusText.innerText = "Offline";
+                list.innerHTML = `<p class="text-[10px] text-slate-400 text-center p-4 uppercase font-bold">Ranking dostępny tylko po połączeniu z bazą Everest.</p>`;
+            }
+        }
+
+        function renderRanking(data) {
+            const list = document.getElementById('leaderboardList');
+            if (!data.length) {
+                list.innerHTML = '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Brak wyników</p>';
+                return;
+            }
+            list.innerHTML = '';
+            data.forEach((s, i) => {
+                list.innerHTML += `
+                    <div class="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm leaderboard-item">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black ${i < 3 ? 'text-blue-500' : 'text-slate-300'}">#${i+1}</span>
+                            <span class="text-xs font-bold uppercase truncate max-w-[120px]">${s.name}</span>
+                        </div>
+                        <span class="font-black text-slate-900">${s.score}</span>
+                    </div>`;
+            });
+        }
 
         // --- SILNIK GRY ---
         const canvas = document.getElementById('gameCanvas');
@@ -150,55 +216,6 @@
             } catch (e) { textEl.innerText = "✨ Czas na kawę, klienci czekają na polisy!"; }
         }
 
-        // --- POŁĄCZENIE Z CHMURĄ ---
-        async function initCloud() {
-            const statusDot = document.getElementById('statusDot');
-            const statusText = document.getElementById('statusText');
-            const list = document.getElementById('leaderboardList');
-            try {
-                const firebaseConfig = JSON.parse(__firebase_config);
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                await signInAnonymously(auth);
-                user = auth.currentUser;
-                statusDot.className = "w-2 h-2 bg-green-500";
-                statusText.innerText = "Online";
-                loadData();
-            } catch (e) {
-                console.warn("Cloud connection skipped or failed");
-                statusDot.className = "w-2 h-2 bg-red-500";
-                statusText.innerText = "Offline";
-                list.innerHTML = `<p class="text-[9px] text-slate-400 text-center p-4">Tryb lokalny aktywowany.</p>`;
-            }
-        }
-
-        function loadData() {
-            if (!user) return;
-            const ref = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
-            onSnapshot(ref, (snap) => {
-                const entries = [];
-                snap.forEach(doc => entries.push(doc.data()));
-                entries.sort((a,b) => b.score - a.score);
-                renderRanking(entries.slice(0, 10));
-            }, (err) => console.error("Firestore error", err));
-        }
-
-        function renderRanking(data) {
-            const list = document.getElementById('leaderboardList');
-            list.innerHTML = data.length ? '' : '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Brak wyników</p>';
-            data.forEach((s, i) => {
-                list.innerHTML += `<div class="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm leaderboard-item">
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs font-black ${i < 3 ? 'text-blue-500' : 'text-slate-300'}">#${i+1}</span>
-                        <span class="text-xs font-bold uppercase truncate max-w-[120px]">${s.name}</span>
-                    </div>
-                    <span class="font-black text-slate-900">${s.score}</span>
-                </div>`;
-            });
-        }
-
-        // --- LOGIKA GRY ---
         function spawn() { items.push({ x: 50+Math.random()*700, y: 50+Math.random()*400 }); }
 
         function draw() {
@@ -238,13 +255,11 @@
 
         function loop() { if(active) { update(); draw(); requestAnimationFrame(loop); } }
 
-        // Start gry
         document.getElementById('startBtn').addEventListener('click', () => {
             document.getElementById('gameOverlay').classList.add('hidden');
             p1.score = 0; p2.score = 0; p1.x = 150; p1.y = 250; p2.x = 650; p2.y = 250;
             time = 60; items = []; for(let i=0; i<6; i++) spawn();
-            active = true;
-            loop();
+            active = true; loop();
             const timerInterval = setInterval(() => {
                 time--; document.getElementById('timer').innerText = time + "s";
                 if(time <= 0 || !active) {
@@ -258,9 +273,9 @@
             }, 1000);
         });
 
-        // Event Listeners
         window.addEventListener('keydown', e => { keys[e.key] = true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault(); });
         window.addEventListener('keyup', e => keys[e.key] = false);
+        
         const bindTouch = (id, key) => {
             const btn = document.getElementById(id);
             btn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys[key] = true; });
@@ -272,7 +287,7 @@
         document.getElementById('saveScoreBtn').onclick = async () => {
             const name = document.getElementById('winnerName').value.trim();
             if(!name) return;
-            if(!user) { alert("Tryb offline - zapis niemożliwy."); return; }
+            if(!user) { alert("Ranking niedostępny w trybie offline."); return; }
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
                     name: name.toUpperCase(), score: Math.max(p1.score, p2.score), timestamp: Date.now()
@@ -280,9 +295,10 @@
                 location.reload();
             } catch(e) { alert("Błąd zapisu."); }
         };
+        
         document.getElementById('restartBtn').onclick = () => location.reload();
 
-        // Init
+        // Start
         draw();
         initCloud();
     </script>
