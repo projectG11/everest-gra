@@ -122,23 +122,23 @@
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
         // Konfiguracja Firebase
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+        let db, auth, user = null;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'everest-jonkowo-v2';
         const apiKey = ""; 
 
-        let user = null;
+        // --- SILNIK GRY ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let active = false, time = 60, items = [], keys = {};
+        const p1 = { x: 150, y: 250, score: 0, color: '#2563eb' };
+        const p2 = { x: 650, y: 250, score: 0, color: '#ef4444' };
 
         // --- OBSŁUGA AI ---
         async function getAIAnalysis(s1, s2) {
             const container = document.getElementById('aiCommentContainer');
             const textEl = document.getElementById('aiCommentText');
             container.classList.remove('hidden');
-            
-            const prompt = `Wynik meczu agentów ubezpieczeniowych biura Everest w Jonkowie: Agent1 zdobył ${s1}, Agent2 zdobył ${s2}. Skomentuj to krótko (max 20 słów) jako szef biura. Nawiąż do ubezpieczeń majątkowych lub komunikacyjnych.`;
-            
+            const prompt = `Wynik meczu agentów ubezpieczeniowych biura Everest w Jonkowie: Agent1 zdobył ${s1}, Agent2 zdobył ${s2}. Skomentuj to krótko (max 20 słów) jako szef biura. Nawiąż do ubezpieczeń.`;
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                     method: 'POST',
@@ -147,9 +147,7 @@
                 });
                 const data = await res.json();
                 textEl.innerText = "✨ " + (data.candidates?.[0]?.content?.parts?.[0]?.text || "Świetna sprzedaż w Jonkowie!");
-            } catch (e) {
-                textEl.innerText = "✨ Czas na kawę, klienci czekają na polisy!";
-            }
+            } catch (e) { textEl.innerText = "✨ Czas na kawę, klienci czekają na polisy!"; }
         }
 
         // --- POŁĄCZENIE Z CHMURĄ ---
@@ -157,18 +155,21 @@
             const statusDot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
             const list = document.getElementById('leaderboardList');
-
             try {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
                 await signInAnonymously(auth);
                 user = auth.currentUser;
                 statusDot.className = "w-2 h-2 bg-green-500";
                 statusText.innerText = "Online";
                 loadData();
             } catch (e) {
-                console.warn("Cloud disconnected");
+                console.warn("Cloud connection skipped or failed");
                 statusDot.className = "w-2 h-2 bg-red-500";
                 statusText.innerText = "Offline";
-                list.innerHTML = `<p class="text-[9px] text-slate-400 text-center p-4">Uruchomiono w trybie lokalnym. Aby ranking działał, dodaj domenę w Firebase Console.</p>`;
+                list.innerHTML = `<p class="text-[9px] text-slate-400 text-center p-4">Tryb lokalny aktywowany.</p>`;
             }
         }
 
@@ -180,80 +181,25 @@
                 snap.forEach(doc => entries.push(doc.data()));
                 entries.sort((a,b) => b.score - a.score);
                 renderRanking(entries.slice(0, 10));
-            }, (err) => {
-                console.error("Firestore error", err);
-            });
+            }, (err) => console.error("Firestore error", err));
         }
 
         function renderRanking(data) {
             const list = document.getElementById('leaderboardList');
             list.innerHTML = data.length ? '' : '<p class="text-center py-10 text-xs opacity-50 uppercase font-bold">Brak wyników</p>';
             data.forEach((s, i) => {
-                list.innerHTML += `
-                    <div class="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm leaderboard-item">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black ${i < 3 ? 'text-blue-500' : 'text-slate-300'}">#${i+1}</span>
-                            <span class="text-xs font-bold uppercase truncate max-w-[120px]">${s.name}</span>
-                        </div>
-                        <span class="font-black text-slate-900">${s.score}</span>
-                    </div>`;
+                list.innerHTML += `<div class="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm leaderboard-item">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-black ${i < 3 ? 'text-blue-500' : 'text-slate-300'}">#${i+1}</span>
+                        <span class="text-xs font-bold uppercase truncate max-w-[120px]">${s.name}</span>
+                    </div>
+                    <span class="font-black text-slate-900">${s.score}</span>
+                </div>`;
             });
         }
 
-        // --- SILNIK GRY ---
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        let active = false, time = 60, items = [], keys = {};
-        const p1 = { x: 150, y: 250, score: 0, color: '#2563eb' };
-        const p2 = { x: 650, y: 250, score: 0, color: '#ef4444' };
-
-        // Obsługa klawiszy
-        window.addEventListener('keydown', e => { 
-            keys[e.key] = true; 
-            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault(); 
-        });
-        window.addEventListener('keyup', e => keys[e.key] = false);
-
-        // Obsługa dotyku (wirtualne strzałki dla Agenta 1)
-        const bindTouch = (id, key) => {
-            const btn = document.getElementById(id);
-            btn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys[key] = true; });
-            btn.addEventListener('pointerup', (e) => { e.preventDefault(); keys[key] = false; });
-            btn.addEventListener('pointerleave', (e) => { e.preventDefault(); keys[key] = false; });
-        };
-        bindTouch('mUp', 'ArrowUp'); bindTouch('mDown', 'ArrowDown'); 
-        bindTouch('mLeft', 'ArrowLeft'); bindTouch('mRight', 'ArrowRight');
-
-        function spawn() { 
-            items.push({ x: 50+Math.random()*700, y: 50+Math.random()*400 }); 
-        }
-
-        function update() {
-            if(!active) return;
-            const s = 7;
-            if(keys.ArrowUp && p1.y > 20) p1.y -= s; 
-            if(keys.ArrowDown && p1.y < 480) p1.y += s;
-            if(keys.ArrowLeft && p1.x > 20) p1.x -= s; 
-            if(keys.ArrowRight && p1.x < 780) p1.x += s;
-            
-            if((keys.w || keys.W) && p2.y > 20) p2.y -= s; 
-            if((keys.s || keys.S) && p2.y < 480) p2.y += s;
-            if((keys.a || keys.A) && p2.x > 20) p2.x -= s; 
-            if((keys.d || keys.D) && p2.x < 780) p2.x += s;
-
-            for(let i = items.length - 1; i >= 0; i--) {
-                const it = items[i];
-                [p1, p2].forEach(p => {
-                    if(Math.hypot(p.x-it.x, p.y-it.y) < 25) { 
-                        p.score++; 
-                        items.splice(i, 1); 
-                        spawn(); 
-                    }
-                });
-            }
-            document.getElementById('score1').innerText = p1.score;
-            document.getElementById('score2').innerText = p2.score;
-        }
+        // --- LOGIKA GRY ---
+        function spawn() { items.push({ x: 50+Math.random()*700, y: 50+Math.random()*400 }); }
 
         function draw() {
             ctx.clearRect(0, 0, 800, 500);
@@ -263,27 +209,45 @@
             });
             [p1, p2].forEach(p => {
                 ctx.fillStyle = p.color; ctx.beginPath();
-                ctx.roundRect ? ctx.roundRect(p.x-15, p.y-15, 30, 30, 8) : ctx.fillRect(p.x-15, p.y-15, 30, 30);
+                if(ctx.roundRect) ctx.roundRect(p.x-15, p.y-15, 30, 30, 8); else ctx.fillRect(p.x-15, p.y-15, 30, 30);
                 ctx.fill();
             });
         }
 
-        function loop() {
-            if(active) { update(); draw(); requestAnimationFrame(loop); }
+        function update() {
+            if(!active) return;
+            const s = 7;
+            if(keys.ArrowUp && p1.y > 20) p1.y -= s; 
+            if(keys.ArrowDown && p1.y < 480) p1.y += s;
+            if(keys.ArrowLeft && p1.x > 20) p1.x -= s; 
+            if(keys.ArrowRight && p1.x < 780) p1.x += s;
+            if((keys.w || keys.W) && p2.y > 20) p2.y -= s; 
+            if((keys.s || keys.S) && p2.y < 480) p2.y += s;
+            if((keys.a || keys.A) && p2.x > 20) p2.x -= s; 
+            if((keys.d || keys.D) && p2.x < 780) p2.x += s;
+
+            for(let i = items.length - 1; i >= 0; i--) {
+                const it = items[i];
+                [p1, p2].forEach(p => {
+                    if(Math.hypot(p.x-it.x, p.y-it.y) < 25) { p.score++; items.splice(i, 1); spawn(); }
+                });
+            }
+            document.getElementById('score1').innerText = p1.score;
+            document.getElementById('score2').innerText = p2.score;
         }
 
-        document.getElementById('startBtn').onclick = () => {
+        function loop() { if(active) { update(); draw(); requestAnimationFrame(loop); } }
+
+        // Start gry
+        document.getElementById('startBtn').addEventListener('click', () => {
             document.getElementById('gameOverlay').classList.add('hidden');
-            p1.score = 0; p2.score = 0; 
-            p1.x = 150; p1.y = 250;
-            p2.x = 650; p2.y = 250;
-            time = 60; items = []; 
-            for(let i=0; i<6; i++) spawn();
-            active = true; 
+            p1.score = 0; p2.score = 0; p1.x = 150; p1.y = 250; p2.x = 650; p2.y = 250;
+            time = 60; items = []; for(let i=0; i<6; i++) spawn();
+            active = true;
             loop();
             const timerInterval = setInterval(() => {
                 time--; document.getElementById('timer').innerText = time + "s";
-                if(time <= 0) {
+                if(time <= 0 || !active) {
                     clearInterval(timerInterval); active = false;
                     document.getElementById('gameOverlay').classList.remove('hidden');
                     document.getElementById('startContent').classList.add('hidden');
@@ -292,26 +256,35 @@
                     getAIAnalysis(p1.score, p2.score);
                 }
             }, 1000);
+        });
+
+        // Event Listeners
+        window.addEventListener('keydown', e => { keys[e.key] = true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault(); });
+        window.addEventListener('keyup', e => keys[e.key] = false);
+        const bindTouch = (id, key) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener('pointerup', (e) => { e.preventDefault(); keys[key] = false; });
+            btn.addEventListener('pointerleave', (e) => { e.preventDefault(); keys[key] = false; });
         };
+        bindTouch('mUp', 'ArrowUp'); bindTouch('mDown', 'ArrowDown'); bindTouch('mLeft', 'ArrowLeft'); bindTouch('mRight', 'ArrowRight');
 
         document.getElementById('saveScoreBtn').onclick = async () => {
             const name = document.getElementById('winnerName').value.trim();
-            if(!name) return alert("Podpisz się!");
-            if(!user) return alert("Zapis niedostępny w trybie offline.");
-            const score = Math.max(p1.score, p2.score);
+            if(!name) return;
+            if(!user) { alert("Tryb offline - zapis niemożliwy."); return; }
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
-                    name: name.toUpperCase(), score: score, timestamp: Date.now()
+                    name: name.toUpperCase(), score: Math.max(p1.score, p2.score), timestamp: Date.now()
                 });
                 location.reload();
             } catch(e) { alert("Błąd zapisu."); }
         };
-
         document.getElementById('restartBtn').onclick = () => location.reload();
 
-        // Inicjalizacja
-        initCloud();
+        // Init
         draw();
+        initCloud();
     </script>
 </body>
 </html>
